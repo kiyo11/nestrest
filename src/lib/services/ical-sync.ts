@@ -38,6 +38,10 @@ async function fetchWithRetry(url: string): Promise<Record<string, ical.Calendar
   throw lastErr instanceof Error ? lastErr : new Error("iCal fetch failed");
 }
 
+// TODO(test-writer): fixture ICS covering create, date-change (triggers
+//   recompute + task due update), vanished UID (soft-cancel), and reactivation.
+// TODO(qe): confirm owner-edited fields (payout, guestId, ownerNotes) are never
+//   overwritten on update — this is the core "edits survive sync" guarantee.
 export async function syncProperty(propertyId: string): Promise<SyncResult> {
   const property = await db.property.findUnique({ where: { id: propertyId } });
   if (!property) return { propertyId, ok: false, created: 0, updated: 0, cancelled: 0, error: "no property" };

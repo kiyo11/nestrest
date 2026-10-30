@@ -25,8 +25,7 @@ const magicLink: Provider = {
   name: "Email",
   from: process.env.EMAIL_FROM ?? "NestRest <onboarding@resend.dev>",
   maxAge: 24 * 60 * 60,
-  // @ts-expect-error — options shape is provided by the Email provider contract
-  async sendVerificationRequest({ identifier, url }) {
+  async sendVerificationRequest({ identifier, url }: { identifier: string; url: string }) {
     await sendMagicLink(identifier, url);
   },
 };

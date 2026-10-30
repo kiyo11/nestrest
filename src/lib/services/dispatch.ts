@@ -13,6 +13,10 @@ export interface DispatchResult {
 
 // Fire all PENDING scheduled messages whose time has arrived. Exactly-once is
 // guaranteed by the conditional update `WHERE state=PENDING` (claim step).
+// TODO(test-writer): cover (a) two concurrent dispatchDue runs send once,
+//   (b) missing guest email -> SKIPPED, (c) unresolved merge field -> FAILED.
+// TODO(qe): the optimistic SENT claim is reverted to SKIPPED/FAILED on guard
+//   failures; confirm no window leaves a FAILED row looking SENT in the UI.
 export async function dispatchDue(now = new Date()): Promise<DispatchResult> {
   const due = await db.scheduledMessage.findMany({
     where: { state: "PENDING", scheduledFor: { lte: now } },
