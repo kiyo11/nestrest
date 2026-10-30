@@ -37,10 +37,12 @@ test.describe("helper mobile flow", () => {
     await page.getByRole("link").filter({ hasText: /turnover/i }).first().click();
     await page.waitForURL(/\/helper\/tasks\//);
 
-    // Tick the first unchecked item (optimistic -> IN_PROGRESS server-side).
-    const firstBox = page.getByRole("checkbox").first();
+    // Tick the first UNCHECKED item (optimistic -> IN_PROGRESS server-side).
+    // Seed data has some items already done, so skip to an unchecked one.
+    const firstBox = page.locator('[role="checkbox"][data-state="unchecked"]').first();
+    const boxId = await firstBox.getAttribute("id");
     await firstBox.click();
-    await expect(firstBox).toBeChecked();
+    await expect(page.locator(`#${boxId}`)).toBeChecked();
 
     // Complete with the unchecked-items confirm dialog.
     await page.getByRole("button", { name: /mark turnover complete/i }).click();

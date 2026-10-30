@@ -38,13 +38,13 @@ test.describe("owner flows", () => {
     // The seeded 'upcoming' reservation is 1–5 days out; overlap it.
     await page.getByLabel(/start/i).fill(isoDays(2));
     await page.getByLabel(/end/i).fill(isoDays(3));
-    await expect(page.getByText(/conflict|overlaps/i)).toBeVisible();
+    await expect(page.getByText(/overlaps/i).first()).toBeVisible();
   });
 
   test("editing a protected booking field updates the activity timeline", async ({ page }) => {
     await loginOwner(page);
     await page.goto("/bookings");
-    await page.getByRole("link", { name: /reservation/i }).first().click();
+    await page.locator('tbody a[href^="/bookings/"]').first().click();
     await page.getByLabel(/payout/i).fill("777");
     await page.getByRole("button", { name: /save/i }).first().click();
     await expect(page.getByText(/owner edited booking/i)).toBeVisible();
