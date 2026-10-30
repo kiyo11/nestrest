@@ -10,8 +10,8 @@ test.describe("helper mobile flow", () => {
   test("password login shows only assigned tasks with no payout/PII", async ({ page }) => {
     await page.goto("/login");
     await page.getByRole("tab", { name: /password/i }).click();
-    await page.getByLabel("Email").fill(HELPER);
-    await page.getByLabel("Password").fill(HELPER_PW);
+    await page.locator("#email").fill(HELPER);
+    await page.locator("#password").fill(HELPER_PW);
     await page.getByRole("button", { name: /^sign in$/i }).click();
 
     await page.waitForURL(/\/helper/);
@@ -29,8 +29,8 @@ test.describe("helper mobile flow", () => {
   }) => {
     await page.goto("/login");
     await page.getByRole("tab", { name: /password/i }).click();
-    await page.getByLabel("Email").fill(HELPER);
-    await page.getByLabel("Password").fill(HELPER_PW);
+    await page.locator("#email").fill(HELPER);
+    await page.locator("#password").fill(HELPER_PW);
     await page.getByRole("button", { name: /^sign in$/i }).click();
     await page.waitForURL(/\/helper/);
 

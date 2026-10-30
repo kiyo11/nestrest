@@ -137,10 +137,13 @@ jobs:
       - run: npx prisma migrate deploy
       - run: npm run db:seed
       - run: npx playwright install --with-deps chromium
-      # Playwright's own webServer config starts `next dev` on port 3100 and tees
-      # output to .playwright/dev.log (see playwright.config.ts) — the e2e
-      # project needs no separate server step.
+      # Playwright's own webServer config starts `next dev` and tees output to
+      # .playwright/dev.log (see playwright.config.ts) — no separate server step.
+      # Pin the port to 3000 so it matches AUTH_URL/NEXTAUTH_URL above; otherwise
+      # magic-link callbacks point at :3000 while the app listens elsewhere.
       - run: npm run test:e2e
+        env:
+          E2E_PORT: "3000"
       - if: always()
         uses: actions/upload-artifact@v4
         with:
