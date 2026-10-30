@@ -135,14 +135,47 @@ export async function syncProperty(propertyId: string): Promise<SyncResult> {
         });
         await recompute(existing.id);
         await updateTurnoverDueDate(existing.id, checkOut);
+        // Reactivated bookings must (re)enqueue triggered messages they may have
+        // missed while cancelled. enqueueForBooking is idempotent via dedupeKey.
+        if (reactivated) await enqueueForBooking(existing.id);
       }
     }
   }
 
   // Cancellation: confirmed Airbnb bookings whose UID vanished from the feed.
+  // Guard against a transient/empty/malformed feed wiping out live data: a 200
+  // that parses to zero VEVENTs (node-ical does NOT throw on an eventless body)
+  // must never be treated as "everything was cancelled". Treat 0 events — or a
+  // suspiciously large proportional drop — as a soft failure and skip the sweep.
+  const activeCount = await db.booking.count({
+    where: { propertyId, source: "AIRBNB", status: "CONFIRMED" },
+  });
+
+  if (events.length === 0 && activeCount > 0) {
+    const warn = `iCal feed returned 0 events but ${activeCount} active booking(s) exist — skipping cancellation sweep to protect data`;
+    await db.property.update({ where: { id: propertyId }, data: { lastSyncError: warn } });
+    await logActivity({ propertyId, type: "SYNC_UPDATED", message: warn });
+    return { propertyId, ok: false, created, updated, cancelled: 0, error: warn };
+  }
+
   const toCancel = await db.booking.findMany({
     where: { propertyId, source: "AIRBNB", status: "CONFIRMED", icalUid: { notIn: [...seenUids] } },
   });
+
+  // Sanity threshold: if a non-empty feed would still cancel a suspiciously large
+  // share of active bookings (>60%), treat it as likely-corrupt and skip the sweep.
+  const CANCEL_PROPORTION_LIMIT = 0.6;
+  if (
+    activeCount >= 5 &&
+    toCancel.length > 0 &&
+    toCancel.length / activeCount > CANCEL_PROPORTION_LIMIT
+  ) {
+    const warn = `iCal sync would cancel ${toCancel.length}/${activeCount} active bookings — above safety threshold; skipping cancellation sweep`;
+    await db.property.update({ where: { id: propertyId }, data: { lastSyncError: warn } });
+    await logActivity({ propertyId, type: "SYNC_UPDATED", message: warn });
+    return { propertyId, ok: false, created, updated, cancelled: 0, error: warn };
+  }
+
   let cancelled = 0;
   for (const b of toCancel) {
     await db.booking.update({

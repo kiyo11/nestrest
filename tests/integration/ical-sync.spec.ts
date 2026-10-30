@@ -111,6 +111,28 @@ test("owner-edited fields (payout, guest, ownerNotes) survive a re-sync", async 
   expect(after.checkIn.getTime()).not.toBe(booking.checkIn.getTime());
 });
 
+test("an empty feed (0 events) does NOT cancel existing confirmed bookings", async () => {
+  server.setBody(
+    ics([
+      { uid: "uid-a@airbnb", start: "20250610", end: "20250614" },
+      { uid: "uid-b@airbnb", start: "20250620", end: "20250622" },
+    ]),
+  );
+  await syncProperty(propertyId);
+  expect(await db.booking.count({ where: { propertyId, status: "CONFIRMED" } })).toBe(2);
+
+  // Transient upstream glitch: a 200 that parses to zero VEVENTs.
+  server.setBody(ics([]));
+  const res = await syncProperty(propertyId);
+
+  // Data must survive: nothing cancelled, a warning recorded.
+  expect(res.cancelled).toBe(0);
+  expect(res.ok).toBe(false);
+  expect(await db.booking.count({ where: { propertyId, status: "CONFIRMED" } })).toBe(2);
+  const prop = await db.property.findUniqueOrThrow({ where: { id: propertyId } });
+  expect(prop.lastSyncError).toBeTruthy();
+});
+
 test("a failed fetch records lastSyncError and retains prior bookings", async () => {
   server.setBody(ics([{ uid: "uid-a@airbnb", start: "20250610", end: "20250614" }]));
   await syncProperty(propertyId);
