@@ -52,6 +52,7 @@ enum ScheduleOffsetDir {
 
 enum MessageState {
   PENDING
+  SENDING
   SKIPPED
   SENT
   DELIVERED
@@ -205,6 +206,7 @@ model ScheduledMessage {
   offsetHours  Int
   scheduledFor DateTime
   state        MessageState      @default(PENDING)
+  claimedAt    DateTime? // set when claimed PENDING->SENDING; used by the stale reaper
   sentAt       DateTime?
   resendId     String?
   error        String?

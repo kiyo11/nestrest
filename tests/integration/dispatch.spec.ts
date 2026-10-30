@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { db, resetDb, seedMinimal, encryptGuest } from "./helpers/db";
-import { dispatchDue } from "../../src/lib/services/dispatch";
+import { dispatchDue, SENDING_STALE_MS } from "../../src/lib/services/dispatch";
 
 let propertyId = "";
 
@@ -117,6 +117,67 @@ test("unresolved merge field -> FAILED with an error message", async () => {
   const after = await db.scheduledMessage.findUniqueOrThrow({ where: { id: sm.id } });
   expect(after.state).toBe("FAILED");
   expect(after.error).toMatch(/Unresolved merge fields/);
+});
+
+test("a stale SENDING row (crashed send) is reset to PENDING and retried", async () => {
+  const tpl = await makeTemplate();
+  const booking = await makeBooking("lee@example.com");
+  // Simulate a sender that crashed after claiming the row: left in SENDING with
+  // an old claimedAt and no resendId/sentAt.
+  const sm = await db.scheduledMessage.create({
+    data: {
+      propertyId,
+      bookingId: booking.id,
+      templateId: tpl.id,
+      anchor: "CHECKIN",
+      offsetDir: "BEFORE",
+      offsetHours: 24,
+      scheduledFor: new Date(Date.now() - 60_000),
+      dedupeKey: `${booking.id}:${tpl.id}`,
+      state: "SENDING",
+      claimedAt: new Date(Date.now() - SENDING_STALE_MS - 60_000),
+    },
+  });
+
+  const res = await dispatchDue();
+  expect(res.reaped).toBe(1);
+  expect(res.sent).toBe(1);
+  const after = await db.scheduledMessage.findUniqueOrThrow({ where: { id: sm.id } });
+  expect(after.state).toBe("SENT");
+  expect(after.resendId).not.toBeNull();
+  expect(after.sentAt).not.toBeNull();
+});
+
+test("a fresh SENDING row (in-flight send) is NOT reaped", async () => {
+  const tpl = await makeTemplate();
+  const booking = await makeBooking("lee@example.com");
+  const sm = await db.scheduledMessage.create({
+    data: {
+      propertyId,
+      bookingId: booking.id,
+      templateId: tpl.id,
+      anchor: "CHECKIN",
+      offsetDir: "BEFORE",
+      offsetHours: 24,
+      scheduledFor: new Date(Date.now() - 60_000),
+      dedupeKey: `${booking.id}:${tpl.id}`,
+      state: "SENDING",
+      claimedAt: new Date(), // just claimed
+    },
+  });
+  const res = await dispatchDue();
+  expect(res.reaped).toBe(0);
+  const after = await db.scheduledMessage.findUniqueOrThrow({ where: { id: sm.id } });
+  expect(after.state).toBe("SENDING");
+});
+
+test("no SENT row is ever observable without a resendId", async () => {
+  const tpl = await makeTemplate();
+  const booking = await makeBooking("lee@example.com");
+  await queue(booking.id, tpl.id);
+  await dispatchDue();
+  const bad = await db.scheduledMessage.count({ where: { state: "SENT", resendId: null } });
+  expect(bad).toBe(0);
 });
 
 test("does not fire messages whose scheduledFor is in the future", async () => {
