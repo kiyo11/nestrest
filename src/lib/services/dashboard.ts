@@ -13,7 +13,7 @@ export interface DashboardData {
 }
 
 export interface ActionItem {
-  kind: "missing_email" | "overdue_task" | "sync_failed";
+  kind: "missing_email" | "overdue_task" | "sync_failed" | "skipped_message";
   severity: "warning" | "destructive";
   label: string;
   href: string;
@@ -39,7 +39,7 @@ export async function getDashboard(propertyId: string, tz: string): Promise<Dash
   const msStart = monthStart.toJSDate();
   const msEnd = monthEnd.toJSDate();
 
-  const [bookings, blocks, property, tasks] = await Promise.all([
+  const [bookings, blocks, property, tasks, skippedMessages] = await Promise.all([
     db.booking.findMany({
       where: { propertyId, status: { in: ["CONFIRMED", "COMPLETED"] } },
       include: { guest: true },
@@ -47,6 +47,7 @@ export async function getDashboard(propertyId: string, tz: string): Promise<Dash
     db.calendarBlock.findMany({ where: { propertyId } }),
     db.property.findUnique({ where: { id: propertyId } }),
     db.cleaningTask.findMany({ where: { propertyId } }),
+    db.scheduledMessage.count({ where: { propertyId, state: "SKIPPED" } }),
   ]);
 
   const daysInMonth = monthEnd.diff(monthStart, "days").days;
@@ -102,6 +103,13 @@ export async function getDashboard(propertyId: string, tz: string): Promise<Dash
       kind: "missing_email",
       severity: "warning",
       label: `${missingEmail} booking${missingEmail > 1 ? "s" : ""} missing guest email`,
+      href: "/bookings",
+    });
+  if (skippedMessages > 0)
+    actionItems.push({
+      kind: "skipped_message",
+      severity: "warning",
+      label: `${skippedMessages} scheduled email${skippedMessages > 1 ? "s" : ""} skipped (no guest email)`,
       href: "/bookings",
     });
   if (overdueTasks > 0)
