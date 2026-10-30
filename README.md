@@ -78,6 +78,58 @@ curl http://localhost:3000/api/cron/dispatch-email
 
 `POST /api/webhooks/resend` records delivery/bounce status back onto messages.
 
+## Deployment & CI
+
+Production is deployed by **Vercel's native Git integration** — not by GitHub
+Actions. Vercel builds and deploys `main` to production on every push, and
+builds a preview deploy for each pull request. GitHub Actions is used for
+**verification only** (see `.github/workflows/ci.yml`).
+
+### Import to Vercel
+
+1. Vercel dashboard → **New Project** → import `kiyo11/nestrest`.
+2. Framework is auto-detected as **Next.js** (build `npm run build`, output
+   handled automatically). No overrides needed.
+3. Add the environment variables below (Production + Preview), then deploy.
+
+### Vercel environment variables
+
+Pulled from `.env.example` (authoritative). Set all for Production; mirror the
+non-prod-specific ones for Preview:
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | Neon **pooled** connection (app runtime) |
+| `DIRECT_URL` | Neon **direct** connection (Prisma migrations) |
+| `AUTH_SECRET` | Auth.js session/JWT secret (`openssl rand -base64 32`) |
+| `AUTH_URL` / `NEXTAUTH_URL` | Deployed app origin (e.g. `https://your-app.vercel.app`) |
+| `ENCRYPTION_KEY` | AES-256-GCM PII key, 32 bytes base64 (`openssl rand -base64 32`) |
+| `CRON_SECRET` | Validates Vercel Cron calls (`Authorization: Bearer`) |
+| `EMAIL_FROM` | From address, e.g. `NestRest <noreply@yourdomain.com>` |
+| `RESEND_API_KEY` | Resend transactional email |
+| `RESEND_WEBHOOK_SECRET` | Svix signing secret for Resend webhooks (required in prod) |
+
+Optional: `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` for owner Google OAuth.
+
+### Vercel Cron
+
+`vercel.json` registers the two cron routes (`/api/cron/ical-sync` hourly,
+`/api/cron/dispatch-email` every 15 min). Both are protected by `CRON_SECRET`
+and fail closed in production if it is unset. No GitHub Actions involvement.
+
+### GitHub Actions workflows
+
+- **`ci.yml`** — runs on every PR and push to `main`: lint + typecheck, unit
+  tests (Vitest, no DB), `next build`, and integration tests against an
+  ephemeral `postgres:16` service container. Passes with **no repo secrets**.
+  The e2e job is best-effort (`continue-on-error`).
+- **`neon-pr-branch.yml`** *(optional)* — isolated Neon DB branch per PR.
+  No-ops until you add secrets `NEON_API_KEY` and `NEON_PROJECT_ID`.
+- **`migrate-production.yml`** — runs `prisma migrate deploy` against prod after
+  merge to `main`. No-ops until you add secret `PRODUCTION_DATABASE_URL`.
+
+See [`.github/SECRETS.md`](.github/SECRETS.md) for the full secret inventory.
+
 ## Architecture notes
 
 - **RBAC** (`src/lib/rbac.ts`): `requireRole` + `scopeToProperty` enforced in
