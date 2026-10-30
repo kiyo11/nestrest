@@ -37,6 +37,9 @@ export interface ButtonProps
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, loading, children, disabled, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
+    // Slot (asChild) requires exactly ONE element child, so the loading spinner
+    // must only be injected in the native-button path. asChild callers wrap a
+    // single element (e.g. a Link) and do not use `loading`.
     return (
       <Comp
         className={cn(buttonVariants({ variant, size, className }))}
@@ -44,8 +47,14 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         disabled={disabled || loading}
         {...props}
       >
-        {loading ? <Loader2 className="animate-spin" aria-hidden /> : null}
-        {children}
+        {asChild ? (
+          children
+        ) : (
+          <>
+            {loading ? <Loader2 className="animate-spin" aria-hidden /> : null}
+            {children}
+          </>
+        )}
       </Comp>
     );
   },
