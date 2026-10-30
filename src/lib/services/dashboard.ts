@@ -25,7 +25,7 @@ export interface UpcomingEvent {
   label: string;
 }
 
-function overlapNights(start: Date, end: Date, monthStart: Date, monthEnd: Date): number {
+export function overlapNights(start: Date, end: Date, monthStart: Date, monthEnd: Date): number {
   const s = Math.max(start.getTime(), monthStart.getTime());
   const e = Math.min(end.getTime(), monthEnd.getTime());
   if (e <= s) return 0;

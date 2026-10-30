@@ -15,7 +15,7 @@ export interface SyncResult {
 }
 
 // Parse an Airbnb reservation code out of a VEVENT SUMMARY / DESCRIPTION / URL.
-function parseReservationCode(...fields: (string | undefined)[]): string | null {
+export function parseReservationCode(...fields: (string | undefined)[]): string | null {
   const re = /\b(H[A-Z0-9]{8,})\b/;
   for (const f of fields) {
     if (!f) continue;
@@ -38,10 +38,9 @@ async function fetchWithRetry(url: string): Promise<Record<string, ical.Calendar
   throw lastErr instanceof Error ? lastErr : new Error("iCal fetch failed");
 }
 
-// TODO(test-writer): fixture ICS covering create, date-change (triggers
-//   recompute + task due update), vanished UID (soft-cancel), and reactivation.
-// TODO(qe): confirm owner-edited fields (payout, guestId, ownerNotes) are never
-//   overwritten on update — this is the core "edits survive sync" guarantee.
+// Covered by tests/integration/ical-sync.spec.ts: fixture ICS covering create,
+//   date-change (recompute + task due update), vanished UID (soft-cancel),
+//   reactivation, owner-edit survival, and fetch-failure data retention.
 export async function syncProperty(propertyId: string): Promise<SyncResult> {
   const property = await db.property.findUnique({ where: { id: propertyId } });
   if (!property) return { propertyId, ok: false, created: 0, updated: 0, cancelled: 0, error: "no property" };

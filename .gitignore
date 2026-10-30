@@ -32,3 +32,10 @@ yarn-error.log*
 
 # prisma
 /prisma/*.db
+
+# testing
+/coverage
+/test-results
+/playwright-report
+/.playwright
+.env.test
