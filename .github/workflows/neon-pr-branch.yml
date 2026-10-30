@@ -1,0 +1,35 @@
+name: Neon PR Branch
+
+# OPTIONAL enhancement. Creates an isolated Neon database branch for each PR so
+# preview deploys / manual testing run against disposable data, and deletes it
+# when the PR closes. No-ops silently until BOTH secrets below are configured —
+# the whole job is gated on NEON_API_KEY being present.
+#
+# Required GitHub Actions secrets (Settings → Secrets and variables → Actions):
+#   NEON_API_KEY     — a Neon API key (neon.tech → Account → API keys)
+#   NEON_PROJECT_ID  — the Neon project ID that owns the branches
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+
+jobs:
+  create-branch:
+    if: ${{ github.event.action != 'closed' && secrets.NEON_API_KEY != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: neondatabase/create-branch-action@v5
+        with:
+          project_id: ${{ secrets.NEON_PROJECT_ID }}
+          branch_name: preview/pr-${{ github.event.number }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+
+  delete-branch:
+    if: ${{ github.event.action == 'closed' && secrets.NEON_API_KEY != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ secrets.NEON_PROJECT_ID }}
+          branch: preview/pr-${{ github.event.number }}
+          api_key: ${{ secrets.NEON_API_KEY }}
