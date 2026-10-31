@@ -18,7 +18,7 @@ jobs:
     if: ${{ github.event.action != 'closed' && secrets.NEON_API_KEY != '' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: neondatabase/create-branch-action@v5
+      - uses: neondatabase/create-branch-action@v6
         with:
           project_id: ${{ secrets.NEON_PROJECT_ID }}
           branch_name: preview/pr-${{ github.event.number }}
