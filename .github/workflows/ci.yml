@@ -29,7 +29,7 @@ jobs:
   lint-typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -42,7 +42,7 @@ jobs:
   unit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -61,7 +61,7 @@ jobs:
       DATABASE_URL: "postgresql://user:pass@localhost:5432/nestrest?schema=public"
       DIRECT_URL: "postgresql://user:pass@localhost:5432/nestrest?schema=public"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -90,7 +90,7 @@ jobs:
       DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/nestrest_test?schema=public"
       DIRECT_URL: "postgresql://postgres:postgres@localhost:5432/nestrest_test?schema=public"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -127,7 +127,7 @@ jobs:
       DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/nestrest_test?schema=public"
       DIRECT_URL: "postgresql://postgres:postgres@localhost:5432/nestrest_test?schema=public"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 20
