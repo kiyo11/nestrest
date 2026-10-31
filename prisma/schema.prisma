@@ -1,0 +1,306 @@
+// NestRest — Prisma schema (Neon Postgres)
+// Every domain table carries propertyId for multi-property readiness.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  OWNER
+  HELPER
+}
+
+enum BookingSource {
+  AIRBNB
+  MANUAL
+  OTHER
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum BlockReason {
+  MAINTENANCE
+  PERSONAL
+  OTHER
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+enum ScheduleAnchor {
+  CHECKIN
+  CHECKOUT
+}
+
+enum ScheduleOffsetDir {
+  BEFORE
+  AFTER
+}
+
+enum MessageState {
+  PENDING
+  SENDING
+  SKIPPED
+  SENT
+  DELIVERED
+  BOUNCED
+  FAILED
+}
+
+enum ActivityType {
+  SYNC_CREATED
+  SYNC_UPDATED
+  SYNC_CANCELLED
+  EDITED
+  EMAIL_SENT
+  EMAIL_STATUS
+  TASK_CREATED
+  TASK_UPDATED
+  ENRICHED
+  NOTE
+}
+
+model Property {
+  id            String    @id @default(cuid())
+  name          String
+  address       String
+  timezone      String // IANA, e.g. "America/Los_Angeles"
+  icalUrl       String? // ENCRYPTED at rest (app-layer)
+  wifiInfo      String?
+  doorCode      String? // ENCRYPTED
+  lastSyncAt    DateTime?
+  lastSyncError String?
+  createdAt     DateTime  @default(now())
+
+  users             UserProperty[]
+  bookings          Booking[]
+  guests            Guest[]
+  blocks            CalendarBlock[]
+  templates         MessageTemplate[]
+  scheduledMessages ScheduledMessage[]
+  tasks             CleaningTask[]
+  activities        ActivityLog[]
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String? // bcrypt for helper password path; null for magic-link only
+  role          Role      @default(OWNER)
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+
+  properties    UserProperty[]
+  assignedTasks CleaningTask[] @relation("assignee")
+  accounts      Account[]
+  sessions      Session[]
+}
+
+// join table => multi-property-ready; role is per-property
+model UserProperty {
+  userId     String
+  propertyId String
+  role       Role
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@id([userId, propertyId])
+  @@index([propertyId])
+}
+
+model Guest {
+  id         String   @id @default(cuid())
+  propertyId String
+  firstName  String? // ENCRYPTED (PII)
+  lastName   String? // ENCRYPTED (PII)
+  email      String? // ENCRYPTED (PII)
+  phone      String? // ENCRYPTED (PII)
+  notes      String? // ENCRYPTED (PII)
+  property   Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  bookings   Booking[]
+
+  @@index([propertyId])
+}
+
+model Booking {
+  id              String        @id @default(cuid())
+  propertyId      String
+  source          BookingSource
+  status          BookingStatus @default(CONFIRMED)
+  reservationCode String? // parsed from iCal SUMMARY/URL; enrichment key
+  icalUid         String? // raw VEVENT UID — the sync match key
+  checkIn         DateTime
+  checkOut        DateTime
+  payout          Decimal?      @db.Decimal(10, 2) // owner-only field
+  summary         String? // Airbnb-provided placeholder/summary
+  guestId         String?
+  ownerNotes      String?
+  lastSyncedAt    DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  property          Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  guest             Guest?             @relation(fields: [guestId], references: [id])
+  tasks             CleaningTask[]
+  scheduledMessages ScheduledMessage[]
+  activities        ActivityLog[]
+
+  @@unique([propertyId, icalUid])
+  @@index([propertyId, checkIn])
+  @@index([propertyId, status])
+}
+
+model CalendarBlock {
+  id         String      @id @default(cuid())
+  propertyId String
+  start      DateTime
+  end        DateTime
+  reason     BlockReason @default(OTHER)
+  note       String?
+  property   Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId, start])
+}
+
+model MessageTemplate {
+  id         String   @id @default(cuid())
+  propertyId String
+  name       String
+  subject    String
+  body       String // contains {{merge_fields}}
+  // optional default trigger (drives auto-enqueue on confirm)
+  anchor      ScheduleAnchor?
+  offsetDir   ScheduleOffsetDir?
+  offsetHours Int?
+  createdAt  DateTime @default(now())
+
+  property          Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  scheduledMessages ScheduledMessage[]
+
+  @@index([propertyId])
+}
+
+model ScheduledMessage {
+  id           String            @id @default(cuid())
+  propertyId   String
+  bookingId    String
+  templateId   String
+  anchor       ScheduleAnchor
+  offsetDir    ScheduleOffsetDir
+  offsetHours  Int
+  scheduledFor DateTime
+  state        MessageState      @default(PENDING)
+  claimedAt    DateTime? // set when claimed PENDING->SENDING; used by the stale reaper
+  sentAt       DateTime?
+  resendId     String?
+  error        String?
+  dedupeKey    String // `${bookingId}:${templateId}`
+  createdAt    DateTime          @default(now())
+
+  property Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  booking  Booking         @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  template MessageTemplate @relation(fields: [templateId], references: [id])
+
+  @@unique([dedupeKey])
+  @@index([state, scheduledFor])
+  @@index([propertyId])
+}
+
+model CleaningTask {
+  id          String     @id @default(cuid())
+  propertyId  String
+  bookingId   String?
+  assigneeId  String?
+  status      TaskStatus @default(TODO)
+  dueDate     DateTime
+  accessNotes String?
+  nextCheckIn DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  property Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  booking  Booking?        @relation(fields: [bookingId], references: [id])
+  assignee User?           @relation("assignee", fields: [assigneeId], references: [id])
+  items    ChecklistItem[]
+
+  @@index([propertyId, status])
+  @@index([assigneeId])
+}
+
+model ChecklistItem {
+  id     String       @id @default(cuid())
+  taskId String
+  label  String
+  done   Boolean      @default(false)
+  order  Int
+  task   CleaningTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+model ActivityLog {
+  id         String       @id @default(cuid())
+  propertyId String
+  bookingId  String?
+  type       ActivityType
+  actorId    String? // null => system/cron
+  message    String // never store raw guest PII here
+  createdAt  DateTime     @default(now())
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  booking  Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId, createdAt])
+  @@index([propertyId])
+}
+
+// ---- Auth.js (NextAuth) Prisma adapter models ----
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}

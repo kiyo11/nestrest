@@ -1,0 +1,155 @@
+name: CI
+
+# Verification only. Deployment is handled by Vercel's native Git integration
+# (production on push to main, preview per PR) — there is intentionally no deploy
+# job here. Every job runs with dummy/local env or an ephemeral Postgres service
+# container, so CI is green WITHOUT any repository secrets configured.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Dummy build/test env — never real secrets. ENCRYPTION_KEY must decode to 32
+  # bytes of base64 (crypto.ts enforces this). AUTH_SECRET/placeholder URLs are
+  # only needed so module evaluation during `next build` does not throw.
+  AUTH_SECRET: "ci-dummy-auth-secret-not-a-real-value"
+  AUTH_URL: "http://localhost:3000"
+  NEXTAUTH_URL: "http://localhost:3000"
+  ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+  EMAIL_FROM: "NestRest <noreply@example.com>"
+  CRON_SECRET: "ci-dummy-cron-secret"
+
+jobs:
+  lint-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx tsc --noEmit
+      - run: npx next lint
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      # Vitest — no DB needed. ENCRYPTION_KEY is set deterministically by the
+      # vitest setup file; the dummy env above is harmless here.
+      - run: npm test
+
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # next build needs DATABASE_URL/DIRECT_URL present at module-eval time
+      # (Prisma client). These are placeholders — no connection is made.
+      DATABASE_URL: "postgresql://user:pass@localhost:5432/nestrest?schema=public"
+      DIRECT_URL: "postgresql://user:pass@localhost:5432/nestrest?schema=public"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx next build
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: nestrest_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/nestrest_test?schema=public"
+      DIRECT_URL: "postgresql://postgres:postgres@localhost:5432/nestrest_test?schema=public"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      - run: npm run db:seed
+      # Integration specs call services/route handlers directly against the real
+      # Postgres service — no browser, no app server (PW_NO_SERVER=1 in script).
+      - run: npm run test:integration
+
+  e2e:
+    runs-on: ubuntu-latest
+    # Allowed to fail: the browser magic-link flow relies on scraping the dev
+    # mailer output from .playwright/dev.log, which can be flaky in CI. Keep
+    # `integration` as the required DB-backed gate; treat e2e as best-effort.
+    continue-on-error: true
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: nestrest_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/nestrest_test?schema=public"
+      DIRECT_URL: "postgresql://postgres:postgres@localhost:5432/nestrest_test?schema=public"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      - run: npm run db:seed
+      - run: npx playwright install --with-deps chromium
+      # Playwright's own webServer config starts `next dev` and tees output to
+      # .playwright/dev.log (see playwright.config.ts) — no separate server step.
+      # Pin the port to 3000 so it matches AUTH_URL/NEXTAUTH_URL above; otherwise
+      # magic-link callbacks point at :3000 while the app listens elsewhere.
+      - run: npm run test:e2e
+        env:
+          E2E_PORT: "3000"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            .playwright/
+          retention-days: 7
+          if-no-files-found: ignore
